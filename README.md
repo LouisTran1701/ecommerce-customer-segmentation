@@ -1,152 +1,120 @@
-# 🛒 E-Commerce Customer Segmentation & Real-Time Classification Pipeline
+# E-Commerce Customer Segmentation
 
-An end-to-end machine learning project using the [UCI Online Retail Dataset](https://archive.ics.uci.edu/dataset/352/online+retail). This repository combines **unsupervised learning** (K-Means) to discover actionable customer behavioral segments, **supervised learning** (KNN) to classify new customers in real-time, and **Explainable AI** (SHAP) to interpret individual segment assignments.
+A reproducible customer-segmentation pipeline built from the
+[UCI Online Retail dataset](https://archive.ics.uci.edu/dataset/352/online+retail).
+The project keeps the exploratory notebooks for analysis and provides a tested Python package
+for repeatable training and batch or on-demand scoring.
 
----
+## What the project does
 
-## 📌 Project Overview & Current Progress
+The production path performs five steps:
 
+1. Validate and clean UK transaction history.
+2. Aggregate each customer into 15 behavioral features.
+3. Separate high-concentration B2B customers using `SKU_HHI`.
+4. Apply fitted quantile transformation, standardization, and feature-family weights.
+5. Assign retail customers directly with `KMeans.predict()`.
+
+The saved model artifact includes the fitted transformers, feature order and weights, K-Means
+model, training reference date, quality metrics, and cluster-to-persona mapping. This avoids
+training a second classifier to imitate K-Means.
+
+## Quick start
+
+Python 3.14 and [uv](https://docs.astral.sh/uv/) are required.
+
+```bash
+uv sync --dev
 ```
-┌─────────────────────────┐     ┌─────────────────────────┐     ┌─────────────────────────┐     ┌─────────────────────────┐
-│     1. EDA & Clean      │     │  2. Feature Engineering │     │   3. K-Means Discovery  │     │   4. KNN & SHAP (Next)  │
-│      [COMPLETED]        │────▶│       [COMPLETED]       │────▶│       [COMPLETED]       │────▶│      [IN PROGRESS]      │
-│                         │     │                         │     │                         │     │                         │
-│ Clean raw transactions, │     │ Build 15 behavioral     │     │ K-Selection sweep &     │     │ Real-time classification│
-│ handle returns/outliers │     │ metrics beyond RFM      │     │ Profile 4 customer K=4  │     │ & SHAP explainability   │
-└─────────────────────────┘     └─────────────────────────┘     └─────────────────────────┘     └─────────────────────────┘
+
+Train the complete pipeline from raw transaction history:
+
+```bash
+uv run segment train \
+  --input data/raw/ecommerce-data.csv \
+  --model-out artifacts/segmentation.joblib \
+  --assignments-out outputs/training_segments.csv
 ```
 
----
+Score another transaction-history file with the fitted artifact:
 
-## 🎯 Business Problem & Solution Architecture
-
-An e-commerce retailer wants to segment its customer base to:
-1. **Discover** distinct behavioral customer groups (e.g. bulk wholesale buyers, seasonal shoppers, low-volume casual buyers).
-2. **Classify** new or returning customers into existing segments instantly without re-clustering the entire dataset.
-3. **Explain** feature contributions behind each customer's segment assignment for non-technical stakeholders.
-4. **Drive** tailored marketing strategies, retention campaigns, and pricing models for each segment.
-
-### Three-Stage Technical Architecture
-
-| Stage | Method / Algorithm | Status | Purpose |
-|---|---|---|---|
-| **1. Segment Discovery** | **K-Means Clustering** | ✅ Completed | Unsupervised clustering on 15 normalized behavioral features ($K=4$) |
-| **2. Real-Time Classifier** | **K-Nearest Neighbors (KNN)** | ⏳ Up Next | Supervised classifier trained on discovered segment labels for sub-millisecond inference |
-| **3. Model Interpretability** | **SHAP (SHapley Additive exPlanations)** | ⏳ Up Next | Global & local feature importance explanations for business stakeholders |
-
----
-
-## 🧠 Engineered Feature Matrix (15 Behavioral Features)
-
-Rather than relying solely on traditional RFM (Recency, Frequency, Monetary), **15 granular customer-level features** across 6 behavioral domains were engineered in [`notebook/02_feature_engineering.ipynb`](notebook/02_feature_engineering.ipynb):
-
-| Feature Domain | Feature Name | Definition | Business Value |
-|---|---|---|---|
-| **RFM Baseline** | `Recency` | Log-transformed days since last purchase | Measures customer recency & churn risk |
-| | `MonthlyOrderRate` | Average distinct orders per month active | Normalized order frequency |
-| | `AOV` | Log-transformed Average Order Value ($) | Monetary tier per transaction |
-| **Purchase Rhythms** | `InterPurchaseCV` | Coeff. of Variation of days between orders | Measures purchase timing regularity |
-| | `SpendAcceleration` | Spend slope across customer lifecycle quarters | Detects growing vs waning spend |
-| | `BurstIndex` | Max monthly orders relative to baseline average | Identifies impulse/event purchasing bursts |
-| **Order Composition** | `MedianBasketQty` | Median items per order | Distinguishes single-item vs bulk baskets |
-| | `BasketSizeCV` | Coeff. of Variation of basket item counts | Measures order size consistency |
-| | `BulkLineRate` | Fraction of line items with bulk quantities ($\ge 10$) | Identifies wholesale & reseller traits |
-| **Product Diversity** | `RepeatSKUFraction` | Fraction of items reordered across orders | Measures repeat product loyalty |
-| | `SKU_HHI` | Herfindahl-Hirschman Index of SKU spending | Quantifies product concentration vs diversity |
-| **Risk & Seasonality** | `ReturnRate` | Returned item quantity over total purchased | Identifies return abuse & B2B sampling |
-| | `QuarterConcentration` | Max quarterly order share over total orders | Detects seasonal buying spikes |
-| | `PriceCV` | Coeff. of Variation of unit prices purchased | Measures price sensitivity across tiers |
-| | `QuantityCV` | Coeff. of Variation of order quantities | Measures volume fluctuation per order |
-
----
-
-## 📊 Discovered Customer Segments ($K=4$)
-
-In [`notebook/03_customer_clustering.ipynb`](notebook/03_customer_clustering.ipynb), K-Means model evaluation (WCSS, Silhouette, Davies-Bouldin, Calinski-Harabasz, and ARI stability = 0.999) selected **$K=4$** as the optimal segmentation solution:
-
-| Cluster | Segment Persona | Size (% / N) | Key Distinctive Features ($z$-score) | Strategic Marketing Focus |
-| :---: | :--- | :---: | :--- | :--- |
-| **Cluster 0** | **Frequent Seasonal Intensives** | **8.85%** ($N=331$) | `MonthlyOrderRate` (+1.56)<br>`QuarterConcentration` (+1.00)<br>`InterPurchaseCV` (-1.00) | Early-bird seasonal pre-orders, holiday campaigns, cross-quarter engagement |
-| **Cluster 1** | **Low-Volume Irregular Explorers** | **28.11%** ($N=1,052$) | `InterPurchaseCV` (+0.94)<br>`QuantityCV` (+0.94)<br>`BulkLineRate` (-1.15) | Automated re-engagement email flows, low-threshold free shipping, recommendations |
-| **Cluster 2** | **High-Value Bulk Actives (High Returns)** | **29.50%** ($N=1,104$) | `ReturnRate` (+1.73)<br>`AOV` (+1.71)<br>`MedianBasketQty` (+1.67) | Dedicated B2B account management, volume tier discounts, return mitigation |
-| **Cluster 3** | **Steady Routine Buyers (Occasional Loyalists)** | **33.54%** ($N=1,255$) | `BasketSizeCV` (-1.73)<br>`RepeatSKUFraction` (-1.73)<br>`QuantityCV` (-1.68) | Subscription / auto-replenishment programs, cross-selling higher-margin tiers |
-
----
-
-## 📁 Repository Structure
-
+```bash
+uv run segment score \
+  --input path/to/customer_transactions.csv \
+  --model artifacts/segmentation.joblib \
+  --output outputs/customer_segments.csv
 ```
+
+Both commands accept an optional exclusive snapshot cutoff such as
+`--as-of 2011-12-10`. Scoring input must contain customer transaction history, not a precomputed
+feature row or a single purchase event.
+
+The prediction output contains:
+
+- `CustomerID`, numeric `Cluster`, and stable business `Segment`
+- `DistanceToCentroid`, where smaller values indicate a closer cluster fit
+- `DistanceMargin`, where larger values indicate better separation from the next cluster
+- `IsB2B`, identifying customers handled by the B2B rule instead of retail K-Means
+
+## Quality checks
+
+```bash
+uv run ruff check .
+uv run pytest
+```
+
+GitHub Actions runs the same checks on pushes and pull requests.
+
+## Repository structure
+
+```text
 practice-knn-kmeans/
-├── data/
-│   ├── raw/                            # Original UCI Online Retail dataset
-│   └── processed/                      # Transformed features & segment outputs
-│       ├── cleaned_transactions.csv    # Cleaned transaction-level data
-│       ├── retail_customers.csv        # Engineered 15 customer-level features
-│       ├── final_customer_segments.csv # Customers tagged with K=4 cluster labels
-│       ├── rfm_summary.csv             # RFM baseline summary
-│       └── b2b_customers.csv           # B2B customer subset
+├── src/customer_segmentation/
+│   ├── cli.py                 # train and score commands
+│   ├── config.py              # stable feature/model configuration
+│   ├── features.py            # validation, cleaning, feature engineering
+│   └── model.py               # fit, persistence, and inference
+├── tests/                     # deterministic feature and model tests
 ├── notebook/
-│   ├── 01_eda_cleaning.ipynb           # EDA, missing values, returns & outlier treatment
-│   ├── 02_feature_engineering.ipynb    # 15 behavioral feature generation & log-transform
-│   └── 03_customer_clustering.ipynb   # K-Selection sweep, K=4 K-Means model & segment personas
-├── config.py                           # Project configurations & hyperparameters
-├── pyproject.toml                      # Dependencies & package configuration
-└── README.md                           # Project documentation
+│   ├── 01_eda_cleaning.ipynb
+│   ├── 02_feature_engineering.ipynb
+│   └── 03_customer_clustering.ipynb
+├── data/                      # source and generated data
+├── artifacts/                 # generated model files, ignored by Git
+├── outputs/                   # generated predictions, ignored by Git
+└── pyproject.toml
 ```
 
----
+## Modeling choices
 
-## 🗺️ Roadmap & Current Status
+The fixed production schema covers purchase rhythm, spending shape, basket behavior, volume and
+bulk purchasing, and customer lifecycle. K-Means uses 15 transformed features and four retail
+segments:
 
-- [x] **Stage 1: Exploratory Data Analysis & Data Cleaning** ([`01_eda_cleaning.ipynb`](notebook/01_eda_cleaning.ipynb))
-- [x] **Stage 2: Advanced Feature Engineering** ([`02_feature_engineering.ipynb`](notebook/02_feature_engineering.ipynb)) — *15 behavioral features created*
-- [x] **Stage 3: Customer Segmentation & Profiling** ([`03_customer_clustering.ipynb`](notebook/03_customer_clustering.ipynb)) — *Final $K=4$ K-Means model*
-- [ ] **Stage 4: Supervised Classification Pipeline** — *Train KNN model to predict cluster labels*
-- [ ] **Stage 5: Model Interpretability** — *Implement SHAP global & local feature attribution*
-- [ ] **Stage 6: Production Refactoring** — *Modular `src/` Python package & CLI CLI (`main.py`)*
-- [ ] **Stage 7: Interactive Web Dashboard** — *Streamlit customer segmentation portal*
+- Frequent Seasonal Intensives
+- Low-Volume Irregular Explorers
+- High-Value Bulk Actives (High Returns)
+- Steady Routine Buyers
 
----
+Cluster numbers are implementation details. Persona names are assigned from cluster behavioral
+profiles during training and persisted in the artifact so scoring remains consistent.
 
-## 🚀 Getting Started
+The notebooks remain the research record for EDA, feature selection, cluster-count comparison,
+and stability analysis. Production code deliberately avoids notebook-relative paths and fitted
+state hidden inside notebook cells.
 
-### Prerequisites
+## Current status and next steps
 
-- Python 3.14+
-- [uv](https://docs.astral.sh/uv/) package manager (recommended) or pip
+- [x] EDA and cleaning research
+- [x] Customer feature engineering research
+- [x] K-Means selection and customer profiling
+- [x] Reusable training and scoring package
+- [x] Versioned model artifact, tests, linting, and CI
+- [ ] Add exact per-feature centroid-distance explanations
+- [ ] Add a small Streamlit demonstration after the CLI contract is stable
 
-### Installation
+## Data and license
 
-```bash
-# Clone the repository
-git clone https://github.com/LouisTran1701/ecommerce-customer-segmentation.git
-cd practice-knn-kmeans
-
-# Install dependencies via uv
-uv sync
-```
-
-### Running Notebooks
-
-```bash
-# Launch Jupyter Notebooks
-jupyter notebook notebook/
-```
-
----
-
-## 🛠 Tech Stack
-
-| Category | Tools & Libraries |
-|---|---|
-| **Data Processing** | pandas, NumPy, SciPy |
-| **Data Visualization** | Matplotlib, Seaborn |
-| **Machine Learning** | scikit-learn (KMeans, StandardScaler, KNN) |
-| **Explainability** | SHAP |
-| **Environment & Tooling** | uv, Jupyter Notebook, Git |
-
----
-
-## 📄 License
-
-This repository is built for educational and portfolio demonstration purposes. The underlying dataset is sourced from the [UCI Machine Learning Repository](https://archive.ics.uci.edu/dataset/352/online+retail).
+This repository is intended for educational and portfolio use. The underlying Online Retail
+dataset is sourced from the UCI Machine Learning Repository. Generated model artifacts and scoring
+outputs are intentionally excluded from version control.
