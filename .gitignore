@@ -25,3 +25,9 @@ data/
 # Generated model outputs
 artifacts/
 outputs/
+
+# OS generated files
+.DS_Store
+
+# Model binary files
+*.joblib
