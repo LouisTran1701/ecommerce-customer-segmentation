@@ -5,6 +5,29 @@ build/
 dist/
 wheels/
 *.egg-info
+.pytest_cache/
+.ruff_cache/
 
 # Virtual environments
 .venv
+
+#Data
+data/
+*.csv
+*.xlsx
+*.parquet
+
+#Environment
+.env
+.env.*
+!.env.example
+
+# Generated model outputs
+artifacts/
+outputs/
+
+# OS generated files
+.DS_Store
+
+# Model binary files
+*.joblib
